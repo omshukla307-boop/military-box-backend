@@ -9,6 +9,10 @@ let lastAlertCount = 0;
 let targetLat = 28.6139;
 let targetLng = 77.2090;
 
+// Sparkline Data Buffers
+const tempHistory = [24.2, 24.5, 24.8, 25.1, 24.9, 25.3, 25.0];
+const humidityHistory = [52.0, 51.5, 53.0, 52.4, 52.8, 53.2, 52.9];
+
 // DOM Elements
 const backendStatusChip = document.getElementById('backend-status-chip');
 const valTemp = document.getElementById('val-temp');
@@ -50,6 +54,7 @@ const soundIcon = document.getElementById('sound-icon');
 document.addEventListener('DOMContentLoaded', () => {
   initRadarCanvas();
   initMapCanvas();
+  initThemeSwitcher();
   
   checkBackendHealth();
   fetchLatestTelemetry();
@@ -65,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchAuditLogs();
   }, 4000);
 
-  // Setup Event Listeners
+  // Event Listeners
   btnSimNormal.addEventListener('click', () => triggerSimulation(false));
   btnSimAlert.addEventListener('click', () => triggerSimulation(true));
   btnRefresh.addEventListener('click', () => {
@@ -79,10 +84,10 @@ document.addEventListener('DOMContentLoaded', () => {
   soundToggle.addEventListener('click', () => {
     audioEnabled = !audioEnabled;
     soundIcon.textContent = audioEnabled ? '🔊' : '🔇';
-    soundToggle.classList.toggle('muted', !audioEnabled);
+    soundToggle.style.opacity = audioEnabled ? '1' : '0.5';
   });
 
-  // Filter tab setup
+  // Filter tabs setup
   document.querySelectorAll('#alert-filter-tabs .tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('#alert-filter-tabs .tab-btn').forEach(b => b.classList.remove('active'));
@@ -93,6 +98,46 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// Theme Switcher Logic
+function initThemeSwitcher() {
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+      const theme = e.target.getAttribute('data-theme');
+      e.target.classList.add('active');
+      document.body.className = `theme-${theme}`;
+    });
+  });
+}
+
+// Sparkline Render
+function drawSparkline(canvasId, historyData, strokeColor) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = 60;
+  const h = canvas.height = 24;
+
+  ctx.clearRect(0, 0, w, h);
+  if (historyData.length < 2) return;
+
+  const min = Math.min(...historyData);
+  const max = Math.max(...historyData);
+  const range = (max - min) || 1;
+
+  ctx.beginPath();
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.8;
+
+  historyData.forEach((val, index) => {
+    const x = (index / (historyData.length - 1)) * w;
+    const y = h - ((val - min) / range) * (h - 6) - 3;
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
 // 1. Animated Radar Sweep Canvas
 function initRadarCanvas() {
   const canvas = document.getElementById('radar-canvas');
@@ -101,25 +146,22 @@ function initRadarCanvas() {
   let angle = 0;
 
   function render() {
-    ctx.clearRect(0, 0, 44, 44);
-    const cx = 22, cy = 22, r = 20;
+    ctx.clearRect(0, 0, 48, 48);
+    const cx = 24, cy = 24, r = 22;
 
-    // Circles
-    ctx.strokeStyle = 'rgba(0, 242, 254, 0.2)';
+    ctx.strokeStyle = 'rgba(0, 242, 254, 0.25)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2); ctx.stroke();
 
-    // Crosshairs
-    ctx.beginPath(); ctx.moveTo(cx, 2); ctx.lineTo(cx, 42); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(2, cy); ctx.lineTo(42, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, 2); ctx.lineTo(cx, 46); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(2, cy); ctx.lineTo(46, cy); ctx.stroke();
 
-    // Sweep Line
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(angle);
     ctx.strokeStyle = '#00f2fe';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(r, 0);
@@ -145,8 +187,7 @@ function initMapCanvas() {
     ctx.fillStyle = '#03060a';
     ctx.fillRect(0, 0, w, h);
 
-    // Grid lines
-    ctx.strokeStyle = 'rgba(0, 242, 254, 0.07)';
+    ctx.strokeStyle = 'rgba(0, 242, 254, 0.08)';
     ctx.lineWidth = 1;
     for (let x = 0; x < w; x += 30) {
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
@@ -155,11 +196,9 @@ function initMapCanvas() {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
 
-    // Target Beacon Location
     const beaconX = w * 0.5;
     const beaconY = h * 0.5;
 
-    // Pulsing Rings
     const t = (Date.now() % 2000) / 2000;
     ctx.strokeStyle = `rgba(0, 242, 254, ${1 - t})`;
     ctx.lineWidth = 1.5;
@@ -167,13 +206,12 @@ function initMapCanvas() {
     ctx.arc(beaconX, beaconY, 10 + t * 25, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Center Crosshair Marker
     ctx.strokeStyle = '#00f2fe';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(beaconX, beaconY, 6, 0, Math.PI * 2); ctx.stroke();
 
-    ctx.fillStyle = '#ff3366';
-    ctx.beginPath(); ctx.arc(beaconX, beaconY, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff2a6d';
+    ctx.beginPath(); ctx.arc(beaconX, beaconY, 3.5, 0, Math.PI * 2); ctx.fill();
 
     requestAnimationFrame(renderMap);
   }
@@ -216,16 +254,18 @@ function updateTelemetryUI(data) {
     const tempPct = Math.min(100, Math.max(0, (data.temperature / 60) * 100));
     fillTemp.style.width = `${tempPct}%`;
 
+    tempHistory.push(data.temperature);
+    if (tempHistory.length > 10) tempHistory.shift();
+    drawSparkline('temp-sparkline', tempHistory, '#ffb703');
+
     if (data.temperature > 45) {
       valTemp.className = 'metric-value red-text';
-      fillTemp.className = 'progress-fill red';
       tagTemp.textContent = 'HIGH TEMP';
-      tagTemp.className = 'status-tag red';
+      tagTemp.className = 'status-tag tag-red';
     } else {
       valTemp.className = 'metric-value';
-      fillTemp.className = 'progress-fill';
       tagTemp.textContent = 'NORMAL';
-      tagTemp.className = 'status-tag green';
+      tagTemp.className = 'status-tag tag-green';
     }
   }
 
@@ -233,36 +273,40 @@ function updateTelemetryUI(data) {
   if (data.humidity !== undefined) {
     valHumidity.textContent = `${data.humidity.toFixed(1)} %`;
     fillHumidity.style.width = `${data.humidity}%`;
+
+    humidityHistory.push(data.humidity);
+    if (humidityHistory.length > 10) humidityHistory.shift();
+    drawSparkline('humidity-sparkline', humidityHistory, '#00f2fe');
   }
 
   // Vibration / Shock
   if (data.vibration_detected) {
-    valVibration.textContent = '🚨 IMPACT DETECTED';
+    valVibration.textContent = '🚨 SHOCK DETECTED';
     valVibration.className = 'metric-value red-text';
-    boxVibration.innerHTML = `<span class="sensor-dot red"></span> VIBRATION ALARM ACTIVE`;
+    boxVibration.innerHTML = `<span class="sensor-dot dot-red"></span> VIBRATION ALARM ACTIVE`;
     tagVibration.textContent = 'TAMPERED';
-    tagVibration.className = 'status-tag red';
+    tagVibration.className = 'status-tag tag-red';
   } else {
     valVibration.textContent = 'CLEAR';
-    valVibration.className = 'metric-value green-text';
-    boxVibration.innerHTML = `<span class="sensor-dot green"></span> NO IMPACT DETECTED`;
+    valVibration.className = 'metric-value text-gradient-green';
+    boxVibration.innerHTML = `<span class="sensor-dot dot-green"></span> NO IMPACT DETECTED`;
     tagVibration.textContent = 'STABLE';
-    tagVibration.className = 'status-tag green';
+    tagVibration.className = 'status-tag tag-green';
   }
 
   // Door Lock Status
   if (data.door_open) {
     valDoor.textContent = '🚨 UNLOCKED / OPEN';
     valDoor.className = 'metric-value red-text';
-    boxDoor.innerHTML = `<span class="sensor-dot red"></span> INTRUSION SWITCH OPEN`;
+    boxDoor.innerHTML = `<span class="sensor-dot dot-red"></span> INTRUSION SWITCH OPEN`;
     tagDoor.textContent = 'BREACHED';
-    tagDoor.className = 'status-tag red';
+    tagDoor.className = 'status-tag tag-red';
   } else {
     valDoor.textContent = 'LOCKED';
-    valDoor.className = 'metric-value green-text';
-    boxDoor.innerHTML = `<span class="sensor-dot green"></span> TAMPER SWITCH SEALED`;
+    valDoor.className = 'metric-value text-gradient-green';
+    boxDoor.innerHTML = `<span class="sensor-dot dot-green"></span> TAMPER SWITCH SEALED`;
     tagDoor.textContent = 'SECURE';
-    tagDoor.className = 'status-tag green';
+    tagDoor.className = 'status-tag tag-green';
   }
 
   // Battery
@@ -290,7 +334,6 @@ async function fetchAlerts() {
     const result = await res.json();
     let alerts = result.alerts || [];
 
-    // Sound alert trigger when new alert arrives
     if (alerts.length > lastAlertCount && lastAlertCount !== 0) {
       playSirenSound();
     }
@@ -455,6 +498,6 @@ function playSirenSound() {
     osc.start();
     osc.stop(ctx.currentTime + 0.3);
   } catch (e) {
-    // Ignore audio autoplay policies if blocked
+    // Autoplay policy fallback
   }
 }
